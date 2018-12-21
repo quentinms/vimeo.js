@@ -21,6 +21,7 @@
     "tus-js-client": "^1.5.1"
   },
   "devDependencies": {
+    "mocha": "^5.x.x",
     "standard": "*"
   },
   "scripts": {
