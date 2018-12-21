@@ -26,7 +26,8 @@
     "standard": "*"
   },
   "scripts": {
-    "standard": "standard index.js lib/*.js example/*.js",
-    "test": "npm run standard"
+    "standard": "standard index.js lib/*.js example/*.js test/**/*.js",
+    "mocha": "mocha --recursive --reporter landing test",
+    "test": "npm run standard && npm run mocha"
   }
 }
