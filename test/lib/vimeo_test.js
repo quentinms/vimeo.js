@@ -168,3 +168,34 @@ describe('Vimeo.accessToken', () => {
     })
   })
 })
+
+describe('Vimeo.setAccessToken', () => {
+  const vimeo = new Vimeo('id', 'secret', 'token')
+  it('changes the access token', () => {
+    vimeo.setAccessToken('token2')
+    expect(vimeo._accessToken).to.equal('token2')
+  })
+})
+
+describe('Vimeo._applyQuerystringParams', () => {
+  const vimeo = new Vimeo('id', 'secret', 'token')
+  const PATH = '/path'
+  const PATH_QS = '/path?a=b'
+  const QS = { c: 'd' }
+  it('returns the path if no query is passed', () => {
+    const newPath = vimeo._applyQuerystringParams({ path: PATH }, {})
+    expect(newPath).to.equal(PATH)
+  })
+  it('returns the path if no query is passed', () => {
+    const newPath = vimeo._applyQuerystringParams({ path: PATH_QS }, {})
+    expect(newPath).to.equal(PATH_QS)
+  })
+  it('adds the query string after the ?', () => {
+    const newPath = vimeo._applyQuerystringParams({ path: PATH }, { query: QS })
+    expect(newPath).to.equal(PATH + '?c=d')
+  })
+  it('appens the query string after the &', () => {
+    const newPath = vimeo._applyQuerystringParams({ path: PATH_QS }, { query: QS })
+    expect(newPath).to.equal(PATH_QS + '&c=d')
+  })
+})
