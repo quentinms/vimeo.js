@@ -32,6 +32,25 @@ describe('Vimeo.upload', () => {
     sinon.assert.calledOnce(mockErrorCallback)
     sinon.assert.calledWith(mockErrorCallback, 'Unable to locate file to upload.')
   })
+  describe('file parameter is an object', () => {
+    it('request is called with the expected parameters', () => {
+      const mockRequest = sinon.fake()
+      sinon.replace(vimeo, 'request', mockRequest)
+
+      const fileObject = {
+        size: FILE_SIZE
+      }
+      vimeo.upload(fileObject, {}, mockCompleteCallback, mockProgressCallback, mockErrorCallback)
+
+      sinon.assert.calledOnce(mockRequest)
+      const expectedPayload = {
+        method: 'POST',
+        path: '/me/videos?fields=uri,name,upload',
+        query: { upload: { approach: 'tus', size: FILE_SIZE } }
+      }
+      sinon.assert.calledWith(mockRequest, expectedPayload)
+    })
+  })
   describe('file exists', () => {
     beforeEach(() => {
       const mockFs = sinon.fake.returns({ size: FILE_SIZE })
@@ -85,7 +104,6 @@ describe('Vimeo.upload', () => {
       sinon.assert.calledOnce(mockErrorCallback)
       sinon.assert.calledWith(mockErrorCallback, sinon.match('Request Error'))
     })
-
     it('calls _performTusUpload with the expected parameters', () => {
       const mockRequest = sinon.fake.yields(null, {})
       sinon.replace(vimeo, 'request', mockRequest)
@@ -94,6 +112,18 @@ describe('Vimeo.upload', () => {
       sinon.replace(vimeo, '_performTusUpload', mockTusUpload)
 
       vimeo.upload(FILE_NAME, {}, mockCompleteCallback, mockProgressCallback, mockErrorCallback)
+
+      sinon.assert.calledOnce(mockTusUpload)
+      sinon.assert.calledWith(mockTusUpload, FILE_NAME, FILE_SIZE, {}, mockCompleteCallback, mockProgressCallback, mockErrorCallback)
+    })
+    it('shifts callbacks if param is not passed to the function', () => {
+      const mockRequest = sinon.fake.yields(null, {})
+      sinon.replace(vimeo, 'request', mockRequest)
+
+      const mockTusUpload = sinon.fake()
+      sinon.replace(vimeo, '_performTusUpload', mockTusUpload)
+
+      vimeo.upload(FILE_NAME, mockCompleteCallback, mockProgressCallback, mockErrorCallback)
 
       sinon.assert.calledOnce(mockTusUpload)
       sinon.assert.calledWith(mockTusUpload, FILE_NAME, FILE_SIZE, {}, mockCompleteCallback, mockProgressCallback, mockErrorCallback)
