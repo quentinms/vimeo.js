@@ -4,6 +4,9 @@
 const Vimeo = require('../../lib/vimeo').Vimeo
 const requestDefaults = require('../../lib/vimeo').request_defaults
 const authEndpoints = require('../../lib/vimeo').authEndpoints
+const http = require('http') // Needed for mocking
+const https = require('https') // Needed for mocking
+
 const expect = require('chai').expect
 const sinon = require('sinon')
 
@@ -50,17 +53,17 @@ describe('Vimeo.generateClientCredentials', () => {
     it('with `public` scope by default', () => {
       vimeo.generateClientCredentials()
       sinon.assert.calledOnce(mockRequest)
-      sinon.assert.calledWith(mockRequest, sinon.match.has('query', sinon.match.has('scope', 'public')))
+      sinon.assert.calledWith(mockRequest, sinon.match({ query: sinon.match.has('scope', 'public') }))
     })
     it('with a space-separated list for scopes', () => {
       vimeo.generateClientCredentials(['scope1', 'scope2'])
       sinon.assert.calledOnce(mockRequest)
-      sinon.assert.calledWith(mockRequest, sinon.match.has('query', sinon.match.has('scope', 'scope1 scope2')))
+      sinon.assert.calledWith(mockRequest, sinon.match({ query: sinon.match.has('scope', 'scope1 scope2') }))
     })
     it('with a space-separated list for scopes', () => {
       vimeo.generateClientCredentials('scope1 scope2')
       sinon.assert.calledOnce(mockRequest)
-      sinon.assert.calledWith(mockRequest, sinon.match.has('query', sinon.match.has('scope', 'scope1 scope2')))
+      sinon.assert.calledWith(mockRequest, sinon.match({ query: sinon.match.has('scope', 'scope1 scope2') }))
     })
     it('with all defaults', () => {
       vimeo.generateClientCredentials()
@@ -197,5 +200,82 @@ describe('Vimeo._applyQuerystringParams', () => {
   it('appens the query string after the &', () => {
     const newPath = vimeo._applyQuerystringParams({ path: PATH_QS }, { query: QS })
     expect(newPath).to.equal(PATH_QS + '&c=d')
+  })
+})
+
+describe('Vimeo.request', () => {
+  afterEach(() => {
+    sinon.restore()
+  })
+
+  const vimeo = new Vimeo('id', 'secret', 'token')
+  it('calls callback with an error if options has no path', () => {
+    const mockCallback = sinon.fake()
+    vimeo.request({}, mockCallback)
+
+    sinon.assert.calledOnce(mockCallback)
+    sinon.assert.calledWith(mockCallback, sinon.match.instanceOf(Error))
+  })
+  describe('client.request is called with the expected options', () => {
+    let mockHttpRequest, mockHttpsRequest
+    beforeEach(() => {
+      mockHttpRequest = sinon.fake.returns({ on: () => { }, end: () => { }, write: () => {} })
+      sinon.replace(http, 'request', mockHttpRequest)
+      mockHttpsRequest = sinon.fake.returns({ on: () => { }, end: () => { }, write: () => {} })
+      sinon.replace(https, 'request', mockHttpsRequest)
+    })
+
+    it('parses options if passed as a string', () => {
+      vimeo.request('https://example.com:1234/path')
+
+      sinon.assert.calledOnce(mockHttpsRequest)
+      sinon.assert.calledWith(mockHttpsRequest, sinon.match({ method: 'GET', path: '/path', host: 'example.com', port: '1234' }))
+    })
+    it('adds a leading slash if missing', () => {
+      vimeo.request({ path: 'path' })
+
+      sinon.assert.calledOnce(mockHttpsRequest)
+      sinon.assert.calledWith(mockHttpsRequest, sinon.match({ path: '/path' }))
+    })
+    it('uses https client when requested', () => {
+      vimeo.request({ protocol: 'https:', path: '/path' })
+
+      sinon.assert.calledOnce(mockHttpsRequest)
+      sinon.assert.notCalled(mockHttpRequest)
+    })
+    it('uses http client by default', () => {
+      vimeo.request({ protocol: 'proto:', path: '/path' })
+
+      sinon.assert.calledOnce(mockHttpRequest)
+      sinon.assert.notCalled(mockHttpsRequest)
+    })
+    it('sends body as JSON if content type is application/json', () => {
+      const mockCallback = sinon.fake()
+      vimeo.request({ method: 'POST', path: '/path', query: { a: 'b' }, headers: { 'Content-Type': 'application/json' } }, mockCallback)
+
+      sinon.assert.calledOnce(mockHttpsRequest)
+      sinon.assert.calledWith(mockHttpsRequest, sinon.match({ body: '{"a":"b"}' }))
+    })
+    it('sends body as string if content type is not application/json', () => {
+      const mockCallback = sinon.fake()
+      vimeo.request({ method: 'POST', path: '/path', query: { a: 'b' }, headers: { 'Content-Type': 'not-application/json' } }, mockCallback)
+
+      sinon.assert.calledOnce(mockHttpsRequest)
+      sinon.assert.calledWith(mockHttpsRequest, sinon.match({ body: 'a=b' }))
+    })
+    it('sets the correct body Content-Length', () => {
+      const mockCallback = sinon.fake()
+      vimeo.request({ method: 'POST', path: '/path', query: { a: 'b' }, headers: { 'Content-Type': 'application/json' } }, mockCallback)
+
+      sinon.assert.calledOnce(mockHttpsRequest)
+      sinon.assert.calledWith(mockHttpsRequest, sinon.match({ headers: sinon.match.has('Content-Length', 9) }))
+    })
+    it('sets the correct body Content-Length', () => {
+      const mockCallback = sinon.fake()
+      vimeo.request({ method: 'POST', path: '/path' }, mockCallback)
+
+      sinon.assert.calledOnce(mockHttpsRequest)
+      sinon.assert.calledWith(mockHttpsRequest, sinon.match({ headers: sinon.match.has('Content-Length', 0) }))
+    })
   })
 })
