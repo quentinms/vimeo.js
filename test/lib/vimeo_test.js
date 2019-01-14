@@ -108,3 +108,63 @@ describe('Vimeo.generateClientCredentials', () => {
     })
   })
 })
+
+describe('Vimeo.accessToken', () => {
+  const vimeo = new Vimeo('id', 'secret', 'token')
+  const CODE = 'code'
+  const REDIRECT_URI = 'redirectURI'
+
+  afterEach(() => {
+    sinon.restore()
+  })
+
+  it('request is called with the expected parameters', () => {
+    const mockRequest = sinon.fake()
+    sinon.replace(vimeo, 'request', mockRequest)
+
+    vimeo.accessToken(CODE, REDIRECT_URI)
+
+    const expectedPayload = {
+      method: 'POST',
+      hostname: requestDefaults.hostname,
+      path: authEndpoints.accessToken,
+      query: {
+        grant_type: 'authorization_code',
+        code: CODE,
+        redirect_uri: REDIRECT_URI
+      },
+      headers: {
+        'Content-Type': 'application/x-www-form-urlencoded'
+      }
+    }
+    sinon.assert.calledOnce(mockRequest)
+    sinon.assert.calledWith(mockRequest, sinon.match(expectedPayload))
+  })
+  describe('callback is called with the expected parameters', () => {
+    it('request returns an error', () => {
+      const error = 'Request Error'
+      const body = { 'body': 'body' }
+      const status = { 'status': 'status' }
+      const headers = { 'headers': 'headers' }
+      const mockRequest = sinon.fake.yields(error, body, status, headers)
+      sinon.replace(vimeo, 'request', mockRequest)
+      const mockCallback = sinon.fake()
+
+      vimeo.accessToken(CODE, REDIRECT_URI, mockCallback)
+      sinon.assert.calledOnce(mockCallback)
+      sinon.assert.calledWith(mockCallback, error, null, status, headers)
+    })
+    it('request is successful', () => {
+      const body = { 'body': 'body' }
+      const status = { 'status': 'status' }
+      const headers = { 'headers': 'headers' }
+      const mockRequest = sinon.fake.yields(null, body, status, headers)
+      sinon.replace(vimeo, 'request', mockRequest)
+      const mockCallback = sinon.fake()
+
+      vimeo.accessToken(CODE, REDIRECT_URI, mockCallback)
+      sinon.assert.calledOnce(mockCallback)
+      sinon.assert.calledWith(mockCallback, null, body, status, headers)
+    })
+  })
+})
