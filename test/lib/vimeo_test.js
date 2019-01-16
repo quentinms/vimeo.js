@@ -640,4 +640,3 @@ describe('Vimeo.replace', () => {
     })
   })
 })
-
