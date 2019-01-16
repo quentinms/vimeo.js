@@ -6,6 +6,7 @@ const requestDefaults = require('../../lib/vimeo').request_defaults
 const authEndpoints = require('../../lib/vimeo').authEndpoints
 const http = require('http') // Needed for mocking
 const https = require('https') // Needed for mocking
+const events = require('events')
 
 const expect = require('chai').expect
 const sinon = require('sinon')
@@ -217,65 +218,170 @@ describe('Vimeo.request', () => {
     sinon.assert.calledWith(mockCallback, sinon.match.instanceOf(Error))
   })
   describe('client.request is called with the expected options', () => {
-    let mockHttpRequest, mockHttpsRequest
+    let mockHttpRequest, mockHttpsRequest, mockReq
     beforeEach(() => {
-      mockHttpRequest = sinon.fake.returns({ on: () => { }, end: () => { }, write: () => {} })
+      mockReq = new events.EventEmitter()
+      mockReq.on = sinon.fake(mockReq.on)
+      mockReq.end = sinon.fake()
+      mockReq.write = sinon.fake()
+
+      mockHttpRequest = sinon.fake.returns(mockReq)
       sinon.replace(http, 'request', mockHttpRequest)
-      mockHttpsRequest = sinon.fake.returns({ on: () => { }, end: () => { }, write: () => {} })
+      mockHttpsRequest = sinon.fake.returns(mockReq)
       sinon.replace(https, 'request', mockHttpsRequest)
     })
 
     it('parses options if passed as a string', () => {
-      vimeo.request('https://example.com:1234/path')
+      vimeo.request('https://example.com:1234/path', () => {})
 
       sinon.assert.calledOnce(mockHttpsRequest)
       sinon.assert.calledWith(mockHttpsRequest, sinon.match({ method: 'GET', path: '/path', host: 'example.com', port: '1234' }))
     })
     it('adds a leading slash if missing', () => {
-      vimeo.request({ path: 'path' })
+      vimeo.request({ path: 'path' }, () => {})
 
       sinon.assert.calledOnce(mockHttpsRequest)
       sinon.assert.calledWith(mockHttpsRequest, sinon.match({ path: '/path' }))
     })
     it('uses https client when requested', () => {
-      vimeo.request({ protocol: 'https:', path: '/path' })
+      vimeo.request({ protocol: 'https:', path: '/path' }, () => {})
 
       sinon.assert.calledOnce(mockHttpsRequest)
       sinon.assert.notCalled(mockHttpRequest)
     })
     it('uses http client by default', () => {
-      vimeo.request({ protocol: 'proto:', path: '/path' })
+      vimeo.request({ protocol: 'proto:', path: '/path' }, () => {})
 
       sinon.assert.calledOnce(mockHttpRequest)
       sinon.assert.notCalled(mockHttpsRequest)
     })
     it('sends body as JSON if content type is application/json', () => {
-      const mockCallback = sinon.fake()
-      vimeo.request({ method: 'POST', path: '/path', query: { a: 'b' }, headers: { 'Content-Type': 'application/json' } }, mockCallback)
+      vimeo.request({ method: 'POST', path: '/path', query: { a: 'b' }, headers: { 'Content-Type': 'application/json' } }, () => {})
 
       sinon.assert.calledOnce(mockHttpsRequest)
       sinon.assert.calledWith(mockHttpsRequest, sinon.match({ body: '{"a":"b"}' }))
     })
     it('sends body as string if content type is not application/json', () => {
-      const mockCallback = sinon.fake()
-      vimeo.request({ method: 'POST', path: '/path', query: { a: 'b' }, headers: { 'Content-Type': 'not-application/json' } }, mockCallback)
+      vimeo.request({ method: 'POST', path: '/path', query: { a: 'b' }, headers: { 'Content-Type': 'not-application/json' } }, () => {})
 
       sinon.assert.calledOnce(mockHttpsRequest)
       sinon.assert.calledWith(mockHttpsRequest, sinon.match({ body: 'a=b' }))
     })
     it('sets the correct body Content-Length', () => {
-      const mockCallback = sinon.fake()
-      vimeo.request({ method: 'POST', path: '/path', query: { a: 'b' }, headers: { 'Content-Type': 'application/json' } }, mockCallback)
+      vimeo.request({ method: 'POST', path: '/path', query: { a: 'b' }, headers: { 'Content-Type': 'application/json' } }, () => {})
 
       sinon.assert.calledOnce(mockHttpsRequest)
       sinon.assert.calledWith(mockHttpsRequest, sinon.match({ headers: sinon.match.has('Content-Length', 9) }))
     })
     it('sets the correct body Content-Length', () => {
-      const mockCallback = sinon.fake()
-      vimeo.request({ method: 'POST', path: '/path' }, mockCallback)
+      vimeo.request({ method: 'POST', path: '/path' }, () => {})
 
       sinon.assert.calledOnce(mockHttpsRequest)
       sinon.assert.calledWith(mockHttpsRequest, sinon.match({ headers: sinon.match.has('Content-Length', 0) }))
+    })
+    it('calls req.write with the body', () => {
+      vimeo.request({ method: 'POST', path: '/path', query: { a: 'b' } }, () => {})
+
+      sinon.assert.calledOnce(mockReq.write)
+      sinon.assert.calledWith(mockReq.write, '{"a":"b"}')
+    })
+    it('doesn\'t call req.write if there is no body', () => {
+      vimeo.request({ method: 'POST', path: '/path' }, () => {})
+
+      sinon.assert.notCalled(mockReq.write)
+    })
+    it('sets on error listener', () => {
+      const mockCallback = sinon.fake()
+      vimeo.request({ path: '/path' }, mockCallback)
+
+      sinon.assert.calledOnce(mockReq.on)
+      sinon.assert.calledWith(mockReq.on, 'error', sinon.match.func)
+
+      mockReq.emit('error', 'Error Emitted')
+      sinon.assert.calledOnce(mockCallback)
+      sinon.assert.calledWith(mockCallback, 'Error Emitted')
+    })
+    it('calls req.end()', () => {
+      vimeo.request({ path: '/path' }, () => {})
+
+      sinon.assert.calledOnce(mockReq.end)
+    })
+  })
+
+  describe('Vimeo._handleRequest', () => {
+    const vimeo = new Vimeo('id', 'secret', 'token')
+
+    let mockRes
+    beforeEach(() => {
+      mockRes = new events.EventEmitter()
+      mockRes.on = sinon.fake(mockRes.on)
+      mockRes.setEncoding = sinon.fake()
+      mockRes.headers = { 'headers': 'value' }
+    })
+
+    afterEach(() => {
+      sinon.restore()
+    })
+
+    it('sets the encoding to utf8', () => {
+      const handler = vimeo._handleRequest(() => {})
+      handler(mockRes)
+      sinon.assert.calledOnce(mockRes.setEncoding)
+      sinon.assert.calledWith(mockRes.setEncoding, 'utf8')
+    })
+
+    it('calls callback with an error if status code >= 400', () => {
+      const mockCallback = sinon.fake()
+      const handler = vimeo._handleRequest(mockCallback)
+
+      mockRes.statusCode = 404
+      handler(mockRes)
+
+      mockRes.emit('end')
+      sinon.assert.calledOnce(mockCallback)
+      sinon.assert.calledWith(mockCallback, sinon.match.instanceOf(Error), '', mockRes.statusCode, mockRes.headers)
+    })
+
+    it('calls callback no error if status code < 400', () => {
+      const mockCallback = sinon.fake()
+      const handler = vimeo._handleRequest(mockCallback)
+
+      mockRes.statusCode = 200
+      handler(mockRes)
+
+      mockRes.emit('end')
+      sinon.assert.calledOnce(mockCallback)
+      sinon.assert.calledWith(mockCallback, null, {}, mockRes.statusCode, mockRes.headers)
+    })
+
+    it('calls callback with an error if the body is not valid JSON', () => {
+      const mockCallback = sinon.fake()
+      const handler = vimeo._handleRequest(mockCallback)
+
+      mockRes.read = sinon.fake.returns('{"bad": "json"')
+
+      mockRes.statusCode = 200
+      handler(mockRes)
+
+      mockRes.emit('readable')
+      mockRes.emit('end')
+      sinon.assert.calledOnce(mockCallback)
+      sinon.assert.calledWith(mockCallback, '{"bad": "json"', '{"bad": "json"', mockRes.statusCode, mockRes.headers)
+    })
+
+    it('calls callback the body parsed as JSON', () => {
+      const mockCallback = sinon.fake()
+      const handler = vimeo._handleRequest(mockCallback)
+
+      mockRes.read = sinon.fake.returns('{"good": "json"}')
+
+      mockRes.statusCode = 200
+      handler(mockRes)
+
+      mockRes.emit('readable')
+      mockRes.emit('end')
+      sinon.assert.calledOnce(mockCallback)
+      sinon.assert.calledWith(mockCallback, null, { good: 'json' }, mockRes.statusCode, mockRes.headers)
     })
   })
 })
